@@ -3,6 +3,7 @@ This file contains code that will kick off training and testing processes
 """
 import os
 import json
+import numpy as np
 
 from experiments.UNetExperiment import UNetExperiment
 from data_prep.HippocampusDatasetLoader import LoadHippocampusData
@@ -13,12 +14,12 @@ class Config:
     """
     def __init__(self):
         self.name = "Basic_unet"
-        self.root_dir = r"YOUR DIRECTORY HERE"
-        self.n_epochs = 10
+        self.root_dir = r"/home/workspace/Section1/out/"
+        self.n_epochs = 5
         self.learning_rate = 0.0002
         self.batch_size = 8
         self.patch_size = 64
-        self.test_results_dir = "RESULTS GO HERE"
+        self.test_results_dir = "/home/workspace/out"
 
 if __name__ == "__main__":
     # Get configuration
@@ -49,6 +50,16 @@ if __name__ == "__main__":
     # the array with indices of training volumes to be used for training, validation 
     # and testing respectively.
     # <YOUR CODE GOES HERE>
+    n = len(data)
+    keys = list(keys)
+    
+    np.random.seed(13)
+    np.random.shuffle(keys)
+    n_train = int(0.6*n)
+    n_val = int(0.2*n)
+    split["train"] = keys[:n_train]
+    split["val"] = keys[n_train:n_train+n_val]
+    split["test"] = keys[n_train+n_val:]
 
     # Set up and run experiment
     
@@ -57,7 +68,7 @@ if __name__ == "__main__":
 
     # You could free up memory by deleting the dataset
     # as it has been copied into loaders
-    # del dataset 
+    del data 
 
     # run training
     exp.run()

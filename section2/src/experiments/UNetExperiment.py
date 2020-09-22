@@ -15,7 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from data_prep.SlicesDataset import SlicesDataset
 from utils.utils import log_to_tensorboard
-from utils.volume_stats import Dice3d, Jaccard3d
+from utils.volume_stats import Dice3d, Jaccard3d, Sensitivity, Specificity
 from networks.RecursiveUNet import UNet
 from inference.UNetInferenceAgent import UNetInferenceAgent
 
@@ -97,9 +97,10 @@ class UNetExperiment:
             # shape [BATCH_SIZE, 1, PATCH_SIZE, PATCH_SIZE] into variables data and target. 
             # Feed data to the model and feed target to the loss function
             # 
-            # data = <YOUR CODE HERE>
-            # target = <YOUR CODE HERE>
-
+            data, target = batch["image"], batch["seg"]
+            data = torch.reshape(data, (-1, 1,data.shape[2], data.shape[3])).type(torch.float).to(self.device)
+            target = torch.reshape(target, (-1, 1, target.shape[2], target.shape[3])).to(self.device)
+            
             prediction = self.model(data)
 
             # We are also getting softmax'd version of prediction to output a probability map
@@ -110,6 +111,10 @@ class UNetExperiment:
 
             # TASK: What does each dimension of variable prediction represent?
             # ANSWER:
+            # dim0: batch index. it also x axis of 3d image but shuffled.
+            # dim1: channel index
+            # dim2: y axis of image
+            # dim3: z axis of image
 
             loss.backward()
             self.optimizer.step()
@@ -154,7 +159,14 @@ class UNetExperiment:
                 
                 # TASK: Write validation code that will compute loss on a validation sample
                 # <YOUR CODE HERE>
-
+                data, target = batch["image"], batch["seg"]
+                data = torch.reshape(data, (-1, 1,data.shape[2], data.shape[3])).type(torch.float).to(self.device)
+                target = torch.reshape(target, (-1, 1, target.shape[2], target.shape[3])).to(self.device)         
+                
+                prediction = self.model(data)
+                prediction_softmax = F.softmax(prediction, dim=1)
+                loss = self.loss_function(prediction, target[:, 0, :, :])
+                
                 print(f"Batch {i}. Data shape {data.shape} Loss {loss}")
 
                 # We report loss that is accumulated across all of validation set
@@ -218,6 +230,8 @@ class UNetExperiment:
         out_dict["volume_stats"] = []
         dc_list = []
         jc_list = []
+        sn_list = []
+        sp_list = []
 
         # for every in test set
         for i, x in enumerate(self.test_data):
@@ -235,8 +249,13 @@ class UNetExperiment:
 
             dc = Dice3d(pred_label, x["seg"])
             jc = Jaccard3d(pred_label, x["seg"])
+            sn = Sensitivity(pred_label, x["seg"])
+            sp = Specificity(pred_label, x["seg"])
+
             dc_list.append(dc)
             jc_list.append(jc)
+            sn_list.append(sn)
+            sp_list.append(sp)
 
             # STAND-OUT SUGGESTION: By way of exercise, consider also outputting:
             # * Sensitivity and specificity (and explain semantic meaning in terms of 
@@ -247,14 +266,17 @@ class UNetExperiment:
             out_dict["volume_stats"].append({
                 "filename": x['filename'],
                 "dice": dc,
-                "jaccard": jc
+                "jaccard": jc,
+                "sensitivity": sn,
+                "specificity": sp
                 })
             print(f"{x['filename']} Dice {dc:.4f}. {100*(i+1)/len(self.test_data):.2f}% complete")
 
         out_dict["overall"] = {
             "mean_dice": np.mean(dc_list),
-            "mean_jaccard": np.mean(jc_list)}
-
+            "mean_jaccard": np.mean(jc_list),
+            "mean_sensitivity": np.mean(sn_list),
+            "mean_specificity": np.mean(sp_list)}
         print("\nTesting complete.")
         return out_dict
 

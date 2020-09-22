@@ -62,7 +62,11 @@ def get_predicted_volumes(pred):
 
     # TASK: Compute the volume of your hippocampal prediction
     # <YOUR CODE HERE>
-
+    print("pred sum:", pred.sum())
+    volume_ant = np.where(pred == 1, 1, 0).sum()
+    volume_post = np.where(pred == 2, 1, 0).sum()
+    total_volume = volume_ant + volume_post
+    
     return {"anterior": volume_ant, "posterior": volume_post, "total": total_volume}
 
 def create_report(inference, header, orig_vol, pred_vol):
@@ -99,12 +103,16 @@ def create_report(inference, header, orig_vol, pred_vol):
     # depend on how you present them.
 
     # SAMPLE CODE BELOW: UNCOMMENT AND CUSTOMIZE
-    # draw.text((10, 0), "HippoVolume.AI", (255, 255, 255), font=header_font)
-    # draw.multiline_text((10, 90),
-    #                     f"Patient ID: {header.PatientID}\n"
-    #                       <WHAT OTHER INFORMATION WOULD BE RELEVANT?>
-    #                     (255, 255, 255), font=main_font)
-
+    draw.text((10, 10), "HippoVolume.AI", (255, 255, 255), font=header_font)
+    draw.multiline_text((10, 100),
+                        f"Patient ID: {header.PatientID}\n" + 
+                        f"Age: {header.get('PatientAge', '--')}, Sex: {header.get('PatientSex', '--')}\n" + 
+                        f"Size: {header.get('PatientSize', '---')}m, Weight: {header.get('PatientWeight', '---')}kg \n" + 
+                        f"Study Date: {header.get('StudyDate', '---------')},  ID: {header.get('StudyID', '---')}\n\n" +
+                        f"Volume estimation\n" +
+                        f"Total: {inference['total']} (Anterior: {inference['anterior']}, Posterior: {inference['posterior']})\n",
+                        (255, 255, 255), font=main_font)    
+    
     # STAND-OUT SUGGESTION:
     # In addition to text data in the snippet above, can you show some images?
     # Think, what would be relevant to show? Can you show an overlay of mask on top of original data?
@@ -112,12 +120,32 @@ def create_report(inference, header, orig_vol, pred_vol):
     #
     # Create a PIL image from array:
     # Numpy array needs to flipped, transposed and normalized to a matrix of values in the range of [0..255]
-    # nd_img = np.flip((slice/np.max(slice))*0xff).T.astype(np.uint8)
-    # This is how you create a PIL image from numpy array
-    # pil_i = Image.fromarray(nd_img, mode="L").convert("RGBA").resize(<dimensions>)
-    # Paste the PIL image into our main report image object (pimg)
-    # pimg.paste(pil_i, box=(10, 280))
+    for i, slice_num in enumerate(slice_nums):
+        orig_slice = orig_vol[slice_num]
+        pred_slice = pred_vol[slice_num][:orig_slice.shape[0], :orig_slice.shape[1]] # trim predicted mask 
+        
+        print("cropped_pred_slice sum: ", pred_slice.sum())
+        
+        nd_img = np.flip((orig_slice/np.max(orig_slice))*0xff).T.astype(np.uint8)
+        nd_ant = np.flip(np.where(pred_slice == 1, 1, 0)*0xff).T.astype(np.uint8)
+        nd_pst = np.flip(np.where(pred_slice == 2, 1, 0)*0xff).T.astype(np.uint8)
+        nd_msk = np.zeros((nd_img.shape[0], nd_img.shape[1], 3)).astype(np.uint8) # RGB
 
+        nd_msk[:, :, 0] = nd_ant # red for anterior
+        nd_msk[:, :, 2] = nd_pst # blue for posterior
+        
+        # This is how you create a PIL image from numpy array
+        pil_i = Image.fromarray(nd_img, mode="L").convert("RGBA").resize((200, 200))
+        pil_msk = Image.fromarray(nd_msk, mode="RGB").convert("RGBA").resize((200, 200))
+        pil_ovl = Image.blend(pil_i, pil_msk, alpha=0.5) # overlay prediction
+        
+        # Paste the PIL image into our main report image object (pimg)
+        draw.text((10 + i*220, 280), f"at {slice_num}th slice", (255, 255, 255), font=main_font)
+        pimg.paste(pil_ovl, box=(10 + i*220, 320))
+        draw.text((10, 525), f"red: anterior", (255, 0, 0), font=main_font)
+        draw.text((150, 525), f" blue: posterior", (0, 0, 255), font=main_font)
+        pimg.paste(pil_i, box=(10 + i*220, 560))
+        pimg.paste(pil_msk, box=(10 + i*220, 780))
     return pimg
 
 def save_report_as_dcm(header, report, path):
@@ -230,7 +258,12 @@ def get_series_for_inference(path):
     # Hint: inspect the metadata of HippoCrop series
 
     # <YOUR CODE HERE>
-
+    series = []
+    for dcm in dicoms:
+        if dcm.SeriesDescription == "HippoCrop":
+            series.append(dcm)    
+    series_for_inference = np.array(series)
+    
     # Check if there are more than one series (using set comprehension).
     if len({f.SeriesInstanceUID for f in series_for_inference}) != 1:
         print("Error: can not figure out what series to run inference on")
@@ -271,7 +304,7 @@ if __name__ == "__main__":
     # TASK: Use the UNetInferenceAgent class and model parameter file from the previous section
     inference_agent = UNetInferenceAgent(
         device="cpu",
-        parameter_file_path=r"<PATH TO PARAMETER FILE>")
+        parameter_file_path=r"/home/workspace/section2/out/model.pth")
 
     # Run inference
     # TASK: single_volume_inference_unpadded takes a volume of arbitrary size 
@@ -283,7 +316,7 @@ if __name__ == "__main__":
 
     # Create and save the report
     print("Creating and pushing report...")
-    report_save_path = r"<TEMPORARY PATH TO SAVE YOUR REPORT FILE>"
+    report_save_path = r"/home/workspace/out/report.dcm"
     # TASK: create_report is not complete. Go and complete it. 
     # STAND OUT SUGGESTION: save_report_as_dcm has some suggestions if you want to expand your
     # knowledge of DICOM format
@@ -293,7 +326,9 @@ if __name__ == "__main__":
     # Send report to our storage archive
     # TASK: Write a command line string that will issue a DICOM C-STORE request to send our report
     # to our Orthanc server (that runs on port 4242 of the local machine), using storescu tool
-    os_command("<COMMAND LINE TO SEND REPORT TO ORTHANC>")
+    
+    ## AE Title 'HIPPOAI' is defined at /opt/OrthancBuild/Configuration.json
+    os_command(f"storescu 127.0.0.1 4242 -v -aec HIPPOAI /home/workspace/out/report.dcm")
 
     # This line will remove the study dir if run as root user
     # Sleep to let our StoreSCP server process the report (remember - in our setup

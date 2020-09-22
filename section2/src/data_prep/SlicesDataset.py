@@ -16,6 +16,7 @@ class SlicesDataset(Dataset):
         self.slices = []
 
         for i, d in enumerate(data):
+            print(d["image"].shape)
             for j in range(d["image"].shape[0]):
                 self.slices.append((i, j))
 
@@ -48,6 +49,10 @@ class SlicesDataset(Dataset):
         # Hint2: You can use None notation like so: arr[None, :] to add size-1 
         # dimension to a Numpy array
         # <YOUR CODE GOES HERE>
+        item = self.data[slc[0]]
+        image3d, seg3d = item["image"], item["seg"]
+        sample["image"] = torch.from_numpy(image3d[slc[1]]).unsqueeze(0)
+        sample["seg"] =  torch.from_numpy(seg3d[slc[1]]).unsqueeze(0)
 
         return sample
 
